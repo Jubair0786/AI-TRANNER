@@ -1,174 +1,101 @@
-// Updated ChatBox.jsx with:
-// - Input field send icon instead of Send button
-// - Header buttons: New Chat, Theme Toggle (Sun/Moon), Chat History
-// - Responsive mobile-friendly sticky menu
-
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Sun, Moon, Send, Mic, MicOff, ClipboardCheck, Clipboard } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Bot, User } from "lucide-react";
 
-const ChatBox = () => {
+export default function ChatBox() {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState(() => JSON.parse(localStorage.getItem("chatHistory") || "[]"));
-  const [listening, setListening] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [theme, setTheme] = useState("light");
-  const [copiedIndex, setCopiedIndex] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
   const messagesEndRef = useRef(null);
 
-  const startListening = () => {
-    const recognition = new window.webkitSpeechRecognition();
-    recognition.lang = "en-IN";
-    recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
-    recognition.onresult = (e) => setInput(e.results[0][0].transcript);
-    recognition.start();
-  };
+  // ✅ Load chat history from localStorage in browser only
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chatHistory");
+      if (saved) {
+        setMessages(JSON.parse(saved));
+      }
+    }
+  }, []);
 
-  const speakResponse = (text) => {
-    if (!voiceEnabled) return;
-    const synth = window.speechSynthesis;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-IN";
-    synth.speak(utterance);
-  };
-
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    const userMsg = { type: "user", text: input };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: input }),
-    });
-
-    const data = await res.json();
-    const aiMsg = { type: "bot", text: data.response || data.error };
-    setMessages((prev) => [...prev, aiMsg]);
-    speakResponse(aiMsg.text);
-  };
-
+  // ✅ Scroll and save chat history on messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     localStorage.setItem("chatHistory", JSON.stringify(messages));
   }, [messages]);
 
-  const newChat = () => {
-    setMessages([]);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    const userMessage = { text: input.trim(), sender: "user" };
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    localStorage.removeItem("chatHistory");
-  };
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
-  };
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: input.trim() }),
+      });
 
-  const handleCopy = (text, index) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 1500);
-  };
+      const data = await res.json();
 
-  const handleEdit = (text) => {
-    setInput(text);
+      const botMessage = {
+        text: data?.response?.trim() || "Sorry, I didn't understand that.",
+        sender: "bot",
+      };
+
+      setMessages((prev) => [...prev, botMessage]);
+    } catch (error) {
+      console.error("Error fetching response:", error);
+      setMessages((prev) => [
+        ...prev,
+        { text: "An error occurred. Please try again.", sender: "bot" },
+      ]);
+    }
   };
 
   return (
-    <div className={`flex flex-col h-screen ${theme === "dark" ? "bg-gray-900 text-white" : "bg-gray-50 text-black"}`}>
-
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white sticky top-0 z-10">
-        <h2 className="text-lg font-bold">🤖 AI ChatBot</h2>
-        <div className="hidden sm:flex items-center gap-2">
-          <button onClick={newChat} className="text-sm bg-white/20 px-3 py-1 rounded">+ New Chat</button>
-          <button onClick={toggleTheme}>{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
-          <div className="relative group">
-            <button className="text-sm bg-white/20 px-3 py-1 rounded">Chat History</button>
-            <div className="absolute hidden group-hover:block top-full mt-2 left-0 bg-white text-black p-2 rounded shadow-lg w-48 z-50">
-              {messages.length > 0 ? (
-                <div className="text-sm">Last Chat ({messages.length} msgs)</div>
-              ) : (
-                <div className="text-sm text-gray-500">No history</div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile Menu */}
-        <div className="sm:hidden">
-          <button onClick={() => setMenuOpen(!menuOpen)}>☰</button>
-        </div>
-      </div>
-
-      {menuOpen && (
-        <div className="flex sm:hidden flex-col items-start bg-white text-black px-4 py-2 gap-2 border-b dark:bg-gray-800 dark:text-white">
-          <button onClick={newChat}>+ New Chat</button>
-          <button onClick={toggleTheme}>{theme === "dark" ? "🌞 Light" : "🌙 Dark"}</button>
-          <div>
-            <div className="text-sm font-semibold">Chat History</div>
-            {messages.length > 0 ? (
-              <div className="text-sm">Last Chat ({messages.length} msgs)</div>
-            ) : (
-              <div className="text-sm text-gray-500">No history</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.type === "user" ? "justify-end" : "justify-start"}`}>
+    <div className="bg-white dark:bg-gray-900 p-6 rounded-lg shadow-md max-w-3xl mx-auto">
+      <div className="h-[500px] overflow-y-auto mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded">
+        {messages.map((msg, idx) => (
+          <div
+            key={idx}
+            className={`flex items-start mb-4 ${
+              msg.sender === "user" ? "justify-end" : "justify-start"
+            }`}
+          >
+            {msg.sender === "bot" && <Bot className="w-5 h-5 mr-2 mt-1" />}
             <div
-              className={`p-3 rounded-lg max-w-[80%] text-sm relative break-words
-              ${msg.type === "user" ? "bg-blue-600 text-white" : "bg-gray-200 text-black"}`}
+              className={`rounded-lg px-4 py-2 ${
+                msg.sender === "user"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-100"
+              }`}
             >
-              <div>{msg.text}</div>
-              <div className="flex gap-3 mt-1 text-xs">
-                {msg.type === "user" && (
-                  <button onClick={() => handleEdit(msg.text)} className="text-gray-200 hover:underline">✏️ Edit</button>
-                )}
-                {msg.type === "bot" && (
-                  <button onClick={() => handleCopy(msg.text, i)} className="text-gray-600 hover:underline">
-                    {copiedIndex === i ? <><ClipboardCheck size={14}/> Copied</> : <><Clipboard size={14}/> Copy</>}
-                  </button>
-                )}
-              </div>
+              {msg.text}
             </div>
+            {msg.sender === "user" && <User className="w-5 h-5 ml-2 mt-1" />}
           </div>
         ))}
         <div ref={messagesEndRef} />
       </div>
-
-      {/* Input Area */}
-      <div className="flex-none bg-white dark:bg-gray-800 p-2 shadow-inner border-t sticky bottom-0">
-        <div className="flex gap-2 items-center">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder="Type or speak..."
-            className="flex-1 p-2 border rounded dark:bg-gray-700 dark:text-white"
-          />
-          <button onClick={startListening} title="Speak" className={`p-2 rounded-full ${listening ? "bg-red-200 animate-pulse" : "bg-gray-200"}`}>
-            <Mic size={18} />
-          </button>
-          <button onClick={() => setVoiceEnabled(!voiceEnabled)} className={`p-2 rounded-full ${voiceEnabled ? "bg-green-200" : "bg-yellow-200"}`}>
-            {voiceEnabled ? <Mic size={18} /> : <MicOff size={18} />}
-          </button>
-          <button onClick={handleSend} className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700">
-            <Send size={18} />
-          </button>
-        </div>
-      </div>
+      <form onSubmit={handleSubmit} className="flex items-center space-x-2">
+        <input
+          type="text"
+          placeholder="Type your message..."
+          className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+        />
+        <button
+          type="submit"
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+        >
+          Send
+        </button>
+      </form>
     </div>
   );
-};
-
-export default ChatBox;
+}
